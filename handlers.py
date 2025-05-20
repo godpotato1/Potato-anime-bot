@@ -12,10 +12,6 @@ from storage import get_episode, add_episode
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 UPLOAD_CHANNEL = os.getenv("UPLOAD_CHANNEL")  # e.g. "@your_channel"
 REQUIRED_CHANNELS = os.getenv("REQUIRED_CHANNELS", "").split(",")
-telebot.apihelper.proxy = {
-    'http': os.getenv('SOCKS5_PROXY'),
-    'https': os.getenv('SOCKS5_PROXY')
-}
 
 if not BOT_TOKEN or not UPLOAD_CHANNEL:
     raise ValueError("BOT_TOKEN and UPLOAD_CHANNEL must be set in environment variables.")
