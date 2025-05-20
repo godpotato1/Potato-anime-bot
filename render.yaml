@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: potato-anime-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python handlers.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: UPLOAD_CHANNEL
+        sync: false
+      - key: REQUIRED_CHANNELS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
