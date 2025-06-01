@@ -4,6 +4,7 @@ import random
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from keep_alive import keep_alive
+from anime_checker import check_animes_and_send
 import time
 
 import telebot
@@ -34,6 +35,25 @@ THANK_YOU_MESSAGES = [
     "🍥 با ما همیشه یه انیمه خفن منتظرته! مرسی از انتخابت!",
 ]
 
+def anime_checker_loop():
+    last_checked = datetime.now(timezone.utc) - timedelta(minutes=5)
+    while True:
+        last_checked = check_animes_and_send(last_checked)
+        time.sleep(60)
+
+def check_subscriptions(user_id: int) -> bool:
+    for channel in REQUIRED_CHANNELS:
+        channel = channel.strip()
+        if not channel:
+            continue
+        try:
+            status = bot.get_chat_member(chat_id=channel, user_id=user_id).status
+            if status not in ["member", "creator", "administrator"]:
+                return False
+        except Exception as e:
+            logger.error(f"Error checking membership for {channel}: {e}", exc_info=True)
+            return False
+    return True
 
 def schedule_deletion(chat_id: int, message_id: int, delay: int = 30):
     def delete():
