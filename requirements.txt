@@ -1,0 +1,9 @@
+pyTelegramBotAPI
+python-dotenv
+
+supabase
+flask
+telegram
+nest-asyncio
+postgrest
+aiogram
