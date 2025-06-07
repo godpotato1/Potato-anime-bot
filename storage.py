@@ -6,10 +6,11 @@ from telegram.ext import ContextTypes
 from supabase import create_client
 
 # --- ENV Config ---
-UPLOAD_CHANNEL = os.environ['UPLOAD_CHANNEL']
-ADMIN_CHAT_ID = int(os.environ['ADMIN_CHAT_ID'])
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("SUPABASE_URL و SUPABASE_KEY باید تنظیم شده باشند.")
 
 # --- Supabase Client ---
 client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -43,7 +44,7 @@ def add_episode_to_supabase(data: dict) -> bool:
 # --- Telegram Handler ---
 async def handle_new_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    if not message or message.chat.username.lower() != UPLOAD_CHANNEL.lstrip('@').lower():
+    if not message:
         return
 
     file_name = ""
@@ -60,7 +61,6 @@ async def handle_new_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     code = generate_code(file_name)
 
-    # ساخت دیتا برای دیتابیس
     episode = {
         "message_id": message.message_id,
         "code": code,
@@ -72,7 +72,7 @@ async def handle_new_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     success = add_episode_to_supabase(episode)
 
     await context.bot.send_message(
-        chat_id=ADMIN_CHAT_ID,
-        text=f"{'✅' if success else '❌'} فایل جدید {('ثبت شد' if success else 'ثبت نشد')}:\n\n🎬 `{file_name}`\n🔑 کد: `{code}`",
+        chat_id=update.effective_user.id,  # به خود کاربر بفرست
+        text=f"{'✅' if success else '❌'} فایل شما {('با موفقیت ثبت شد' if success else 'ثبت نشد')}:\n\n🎬 `{file_name}`\n🔑 کد: `{code}`",
         parse_mode="Markdown"
     )
