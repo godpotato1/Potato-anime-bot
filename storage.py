@@ -1,78 +1,76 @@
 import os
-import re
-from datetime import datetime
-from telegram import Update
-from telegram.ext import ContextTypes
+import logging
+from typing import List, Dict, Optional
 from supabase import create_client
 
-# --- ENV Config ---
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
+logger = logging.getLogger(__name__)
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
 if not SUPABASE_URL or not SUPABASE_KEY:
-    raise ValueError("SUPABASE_URL و SUPABASE_KEY باید تنظیم شده باشند.")
+    raise ValueError("Both SUPABASE_URL and SUPABASE_KEY must be set.")
 
-# --- Supabase Client ---
 client = create_client(SUPABASE_URL, SUPABASE_KEY)
 TABLE_NAME = "video_episodes"
 
-# --- Code Generator ---
-def generate_code(title: str) -> str:
-    title = re.sub(r'\[.*?\]', '', title).strip()
-    quality_match = re.search(r'(\d{3,4}p)', title)
-    quality = quality_match.group(1) if quality_match else 'unknown'
-    match = re.search(r'[Ss](\d+)\s*[-_ ]\s*(\d+)', title)
-    if match:
-        season = int(match.group(1))
-        episode = int(match.group(2))
-    else:
-        season = 1
-        episode = 1
-    title = re.sub(r'[Ss]\d+\s*[-_ ]\s*\d+', '', title).strip()
-    code = title.lower().replace(' ', '-')
-    return f"{code}-s{season}-ep{episode}-{quality}"
+def _is_error(response) -> bool:
+    status = getattr(response, "status_code", None)
+    return status is not None and status >= 300
 
-# --- Insert Episode to Supabase ---
-def add_episode_to_supabase(data: dict) -> bool:
+def load_episodes() -> List[Dict]:
     try:
-        res = client.table(TABLE_NAME).insert(data).execute()
-        return not (hasattr(res, "status_code") and res.status_code >= 300)
+        res = client.table(TABLE_NAME).select("*").order("date_added", desc=False).execute()
+        if _is_error(res):
+            logger.error(f"Supabase select failed: status {res.status_code}")
+            return []
+        return res.data or []
     except Exception as e:
-        print(f"❌ Error inserting to Supabase: {e}")
+        logger.error(f"Error loading episodes: {e}", exc_info=True)
+        return []
+
+def get_episode(title: str) -> Optional[Dict]:
+    try:
+        res = client.table(TABLE_NAME).select("*").eq("title", title).single().execute()
+        if _is_error(res):
+            logger.error(f"Supabase get failed: status {res.status_code}")
+            return None
+        return res.data
+    except Exception as e:
+        logger.error(f"Error getting episode {title}: {e}", exc_info=True)
+        return None
+
+def add_episode(episode: Dict) -> bool:
+    try:
+        res = client.table(TABLE_NAME).insert(episode).execute()
+        if _is_error(res):
+            logger.error(f"Supabase insert failed: status {res.status_code}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Error inserting episode: {e}", exc_info=True)
         return False
 
-# --- Telegram Handler ---
-async def handle_new_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message
-    if not message:
-        return
+def update_episode(title: str, updates: Dict) -> bool:
+    try:
+        res = client.table(TABLE_NAME).update(updates).eq("title", title).execute()
+        if _is_error(res):
+            logger.error(f"Supabase update failed: status {res.status_code}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Error updating episode {code}: {e}", exc_info=True)
+        return False
 
-    file_name = ""
-    file_id = ""
-
-    if message.document:
-        file_name = message.document.file_name
-        file_id = message.document.file_id
-    elif message.video:
-        file_name = message.caption or "video"
-        file_id = message.video.file_id
-    else:
-        return
-
-    code = generate_code(file_name)
-
-    episode = {
-        "message_id": message.message_id,
-        "code": code,
-        "title": file_name,
-        "file_id": file_id,
-        "date_added": datetime.utcnow().isoformat()
-    }
-
-    success = add_episode_to_supabase(episode)
-
-    await context.bot.send_message(
-        chat_id=update.effective_user.id,  # به خود کاربر بفرست
-        text=f"{'✅' if success else '❌'} فایل شما {('با موفقیت ثبت شد' if success else 'ثبت نشد')}:\n\n🎬 `{file_name}`\n🔑 کد: `{code}`",
-        parse_mode="Markdown"
-    )
+def delete_episode(code: str) -> bool:
+    try:
+        res = client.table(TABLE_NAME).delete().eq("code", code).execute()
+        if _is_error(res):
+            logger.error(f"Supabase delete failed: status {res.status_code}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Error deleting episode {code}: {e}", exc_info=True)
+        return False
