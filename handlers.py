@@ -2,15 +2,16 @@ import os
 import threading
 import random
 from datetime import datetime, timezone, timedelta
+from collections import defaultdict
 from keep_alive import keep_alive
 from anime_checker import check_animes_and_send
 import time
 
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, ForceReply
 
 from config import logger
-from storage import generate_code, get_episode, add_episode
+from storage import get_episode, add_episode
 
 # --- تنظیمات ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -23,6 +24,8 @@ if not BOT_TOKEN or not UPLOAD_CHANNEL:
     raise ValueError("BOT_TOKEN and UPLOAD_CHANNEL must be set in environment variables.")
 
 bot = telebot.TeleBot(BOT_TOKEN)
+pending_uploads = {}  # key = reply_to_message_id, value = episode dict
+handled_episodes = set()  # کدهای ثبت‌شده
 
 THANK_YOU_MESSAGES = [
     "💛 ممنون از انتخاب PotatoAnime! بازم سر بزن!",
@@ -38,7 +41,6 @@ def anime_checker_loop():
         last_checked = check_animes_and_send(last_checked)
         time.sleep(60)
 
-
 def check_subscriptions(user_id: int) -> bool:
     for channel in REQUIRED_CHANNELS:
         channel = channel.strip()
@@ -53,7 +55,6 @@ def check_subscriptions(user_id: int) -> bool:
             return False
     return True
 
-
 def schedule_deletion(chat_id: int, message_id: int, delay: int = 30):
     def delete():
         try:
@@ -62,6 +63,11 @@ def schedule_deletion(chat_id: int, message_id: int, delay: int = 30):
             logger.error(f"Error deleting message {message_id}: {e}", exc_info=True)
     threading.Timer(delay, delete).start()
 
+def _extract_quality(code: str) -> int:
+    try:
+        return int(code.split("_")[-1])
+    except:
+        return 0
 
 @bot.message_handler(commands=["start"])
 def start_handler(message):
@@ -69,7 +75,7 @@ def start_handler(message):
     if len(parts) < 2:
         bot.send_message(
             message.chat.id,
-            "⚠️ لطفاً کد اپیزود را بعد از /start وارد کنید.\nمثال: /start Devil_May_Cry-ep1-720"
+            "⚠️ لطفاً کد اپیزود را بعد از /start وارد کنید.\nمثال: /start Devil_May_Cry_ep1_720"
         )
         return
 
@@ -114,7 +120,6 @@ def start_handler(message):
             "❌ خطا در ارسال اپیزود. لطفاً مجدداً تلاش کنید."
         )
 
-
 @bot.callback_query_handler(func=lambda c: c.data.startswith("check_"))
 def callback_check(query):
     code = query.data.split("_", 1)[1]
@@ -131,7 +136,7 @@ def callback_check(query):
             from_chat_id=UPLOAD_CHANNEL,
             message_id=ep['message_id']
         )
-        thank_you = random.choice(THANK_YOU_MESSAGES) + " ⏰ این پیام تا ۳۰ ثانیه دیگر حذف خواهد شد."
+        thank_you = random.choice(THANK_YOU_MESSAGES) + " ⏰ این پیام تا 30 ثانیه دیگر حذف خواهد شد."
         warn = bot.send_message(query.message.chat.id, thank_you)
         schedule_deletion(query.message.chat.id, sent.message_id, delay=30)
         schedule_deletion(query.message.chat.id, warn.message_id, delay=30)
@@ -140,52 +145,77 @@ def callback_check(query):
         logger.error(f"Error in callback forwarding {code}: {e}", exc_info=True)
         bot.answer_callback_query(query.id, "❌ خطا در ارسال اپیزود.")
 
-
 @bot.channel_post_handler(content_types=['video', 'document'])
 def handle_channel_post(message: Message):
     logger.info(f"📥 پیام جدید از کانال دریافت شد: chat_id={message.chat.id}, username={message.chat.username}")
 
+    # بررسی اینکه پیام از کانال درست آمده
     expected_channel = UPLOAD_CHANNEL.lstrip('@')
     if message.chat.username != expected_channel:
-        logger.warning(
-            f"⛔️ پیام از کانال اشتباه دریافت شد. انتظار داشتیم: {expected_channel}، اما دریافت شد: {message.chat.username}"
-        )
+        logger.warning(f"⛔️ پیام از کانال اشتباه دریافت شد. انتظار داشتیم: {expected_channel}، اما دریافت شد: {message.chat.username}")
         return
 
-    # دریافت اسم فایل و file_id
+    # استخراج کد اپیزود
     if message.document:
-        file_name = message.document.file_name
-        file_id = message.document.file_id
-    elif message.video:
-        file_name = message.caption or 'video'
-        file_id = message.video.file_id
+        code = message.document.file_name.rsplit('.', 1)[0]
+    elif message.video and message.caption:
+        code = message.caption.strip()
     else:
         logger.warning("⛔️ فایل نامعتبر یا بدون نام.")
         return
 
-    code = generate_code(file_name)
-    logger.info(f"📦 کد اپیزود تولید‌شده: {code}")
+    logger.info(f"📦 کد اپیزود استخراج‌شده: {code}")
 
     episode = {
         'code': code,
         'message_id': message.message_id,
-        'title': file_name,
-        'file_id': file_id,
-        'date_added': datetime.now(timezone.utc).isoformat()
+        'date_added': datetime.now().isoformat(),
+        'quality': _extract_quality(code),
     }
 
-    success = add_episode(episode)
-    if success:
-        logger.info(f"✅ اپیزود {code} با موفقیت ذخیره شد.")
-        # اطلاع به ادمین‌ها (اختیاری)
-        for admin_id in ADMIN_CHAT_IDS:
-            try:
-                bot.send_message(admin_id, f"✅ اپیزود جدید ثبت شد: `{code}`", parse_mode="Markdown")
-            except Exception as e:
-                logger.error(f"Error notifying admin {admin_id}: {e}", exc_info=True)
-    else:
-        logger.error(f"❌ خطا در ذخیره اپیزود {code}.")
+    if not ADMIN_CHAT_IDS:
+        logger.error("❌ لیست ادمین‌ها خالی است. متغیر ADMIN_CHAT_IDS را تنظیم کنید.")
+        return
 
+    for admin_id in ADMIN_CHAT_IDS:
+        try:
+            logger.info(f"📨 در حال ارسال پیام به ادمین: {admin_id}")
+            request = bot.send_message(
+                admin_id,
+                f"📅 یک فایل جدید دریافت شد با کد:\n`{code}`\n\nلطفا عنوان دلخواه را ارسال کنید:",
+                parse_mode="Markdown",
+                reply_markup=ForceReply(selective=True)
+            )
+            logger.info(f"✅ پیام درخواست عنوان به ادمین {admin_id} ارسال شد. message_id={request.message_id}")
+            pending_uploads[request.message_id] = episode
+        except Exception as e:
+            logger.error(f"❌ خطا در ارسال پیام به ادمین {admin_id}: {e}", exc_info=True)
+
+@bot.message_handler(func=lambda m: m.chat.id in ADMIN_CHAT_IDS and m.reply_to_message)
+def receive_title_from_admin(message: Message):
+    reply_to_id = message.reply_to_message.message_id
+    episode = pending_uploads.get(reply_to_id)
+
+    if not episode:
+        bot.reply_to(message, "❌ این اپیزود قبلاً توسط ادمین دیگر ثبت شده یا وجود ندارد.")
+        return
+
+    code = episode["code"]
+    if code in handled_episodes:
+        bot.reply_to(message, "⚠️ این اپیزود قبلاً ثبت شده.")
+        return
+
+    episode["title"] = message.text.strip()
+    if add_episode(episode):
+        handled_episodes.add(code)
+        bot.reply_to(message, f"✅ اپیزود «{episode['title']}» با موفقیت ثبت شد.")
+    else:
+        bot.reply_to(message, "❌ خطا در ذخیره اپیزود.")
+
+    # حذف تمام موارد مرتبط از pending
+    keys_to_delete = [k for k, v in pending_uploads.items() if v['code'] == code]
+    for k in keys_to_delete:
+        pending_uploads.pop(k, None)
 
 if __name__ == '__main__':
     logger.info("Bot started... polling")
