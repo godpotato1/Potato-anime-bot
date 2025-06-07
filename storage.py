@@ -3,16 +3,19 @@ import logging
 from typing import List, Dict, Optional
 from supabase import create_client
 
+# Configure logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
+# Load Supabase credentials
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("Both SUPABASE_URL and SUPABASE_KEY must be set.")
 
+# Initialize Supabase client
 client = create_client(SUPABASE_URL, SUPABASE_KEY)
 TABLE_NAME = "video_episodes"
 
@@ -21,6 +24,7 @@ def _is_error(response) -> bool:
     return status is not None and status >= 300
 
 def load_episodes() -> List[Dict]:
+    """Fetches all episodes ordered by date_added."""
     try:
         res = client.table(TABLE_NAME).select("*").order("date_added", desc=False).execute()
         if _is_error(res):
@@ -31,18 +35,20 @@ def load_episodes() -> List[Dict]:
         logger.error(f"Error loading episodes: {e}", exc_info=True)
         return []
 
-def get_episode(title: str) -> Optional[Dict]:
+def get_episode(code: str) -> Optional[Dict]:
+    """Fetches a single episode by its unique code."""
     try:
-        res = client.table(TABLE_NAME).select("*").eq("title", title).single().execute()
+        res = client.table(TABLE_NAME).select("*").eq("code", code).single().execute()
         if _is_error(res):
             logger.error(f"Supabase get failed: status {res.status_code}")
             return None
         return res.data
     except Exception as e:
-        logger.error(f"Error getting episode {title}: {e}", exc_info=True)
+        logger.error(f"Error getting episode {code}: {e}", exc_info=True)
         return None
 
 def add_episode(episode: Dict) -> bool:
+    """Inserts a new episode record."""
     try:
         res = client.table(TABLE_NAME).insert(episode).execute()
         if _is_error(res):
@@ -53,9 +59,10 @@ def add_episode(episode: Dict) -> bool:
         logger.error(f"Error inserting episode: {e}", exc_info=True)
         return False
 
-def update_episode(title: str, updates: Dict) -> bool:
+def update_episode(code: str, updates: Dict) -> bool:
+    """Updates fields of an existing episode identified by code."""
     try:
-        res = client.table(TABLE_NAME).update(updates).eq("title", title).execute()
+        res = client.table(TABLE_NAME).update(updates).eq("code", code).execute()
         if _is_error(res):
             logger.error(f"Supabase update failed: status {res.status_code}")
             return False
@@ -65,6 +72,7 @@ def update_episode(title: str, updates: Dict) -> bool:
         return False
 
 def delete_episode(code: str) -> bool:
+    """Deletes an episode by its unique code."""
     try:
         res = client.table(TABLE_NAME).delete().eq("code", code).execute()
         if _is_error(res):
