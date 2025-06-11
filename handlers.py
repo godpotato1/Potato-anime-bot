@@ -50,7 +50,7 @@ def generate_title(raw: str) -> str:
         episode_num = ep_match.group(1).lstrip("0")
     else:
         nums = re.findall(r"\b(\d+)\b", no_tags)
-        # اگر فصل هم در nums هست، حذفش
+        # اگر فصل در nums هست، حذفش
         if season and season in nums:
             nums = [n for n in nums if n != season]
         episode_num = nums[-1].lstrip("0") if nums else None
@@ -59,7 +59,6 @@ def generate_title(raw: str) -> str:
     name = re.sub(r"S\d+\b", "", name)
     name = re.sub(r"Ep(?:isode)?\s*\d+", "", name, flags=re.IGNORECASE)
     name = re.sub(r"\d{3,4}p", "", name, flags=re.IGNORECASE)
-    # حذف سایر اعداد
     name = re.sub(r"\b\d+\b", "", name)
     # 6. slugify
     slug = re.sub(r"[^0-9a-zA-Z]+", "-", name).strip("-").lower()
@@ -111,10 +110,13 @@ def anime_checker_loop():
 def handle_channel_post(message: Message):
     if message.chat.username != UPLOAD_CHANNEL.lstrip('@'):
         return
+
+    # استخراج raw title
     if message.document:
         raw = message.document.file_name.rsplit('.', 1)[0]
     else:
         raw = message.caption.strip()
+
     title = generate_title(raw)
     episode = {
         'code': raw,
@@ -123,6 +125,7 @@ def handle_channel_post(message: Message):
         'date_added': datetime.now(timezone.utc).isoformat(),
         'quality': _extract_quality(raw),
     }
+
     if add_episode(episode):
         logger.info(f"✅ اپیزود «{title}» ثبت شد.")
     else:
@@ -134,10 +137,11 @@ def start_handler(message: Message):
     if len(parts) < 2:
         bot.send_message(
             message.chat.id,
-            "⚠️ لطفاً slug اپیزود را بعد از /start وارد کنید.
-مثال: /start classroom-of-the-elite-s1-ep1-480"
+            "⚠️ لطفاً slug اپیزود را بعد از /start وارد کنید.\n"
+            "مثال: /start wind-breaker-s2-ep6-1080"
         )
         return
+
     title = parts[1].strip()
     if not check_subscriptions(message.from_user.id):
         markup = InlineKeyboardMarkup()
@@ -151,6 +155,7 @@ def start_handler(message: Message):
             reply_markup=markup
         )
         return
+
     ep = get_episode(title)
     if not ep:
         bot.send_message(
@@ -159,6 +164,7 @@ def start_handler(message: Message):
             parse_mode="Markdown"
         )
         return
+
     sent = bot.forward_message(message.chat.id, UPLOAD_CHANNEL, ep['message_id'])
     thank = random.choice(THANK_YOU_MESSAGES)
     warn = bot.send_message(message.chat.id, thank + " ⏰ این پیام پس از ۳۰ ثانیه حذف می‌شود.")
