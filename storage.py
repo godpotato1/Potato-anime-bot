@@ -32,11 +32,13 @@ def add_episode(ep: Dict) -> bool:
 
 def get_episode(title: str) -> Optional[Dict]:
     try:
-        res = (client.table(TABLE_NAME)
-                   .select("*")
-                   .eq("title", title)
-                   .single()
-                   .execute())
+        res = (
+            client.table(TABLE_NAME)
+                  .select("*")
+                  .eq("title", title)
+                  .single()
+                  .execute()
+        )
         if _is_error(res):
             logger.error(f"Get error: status {res.status_code}")
             return None
