@@ -37,30 +37,39 @@ THANK_YOU_MESSAGES = [
 
 
 def generate_title(raw: str) -> str:
-    # حذف برچسب‌های مربعی
+    # حذف برچسب‌ها
     no_tags = re.sub(r"\[.*?\]", "", raw)
-    # پاکسازی کیفیت از نام برای استخراج نام
+    # حذف کیفیت از متن برای مانع نامناسب
     no_quality = re.sub(r"\d{3,4}p", "", no_tags, flags=re.IGNORECASE)
-    # پیدا کردن عدد قسمت: از آخرین بخش تفکیک‌شده توسط '-' که فقط عدد است
-    ep_num = "0"
-    parts = no_tags.split("-")
-    for part in reversed(parts):
-        p = part.strip()
-        if p.isdigit():
-            ep_num = p.lstrip("0") or "0"
-            break
-    # پیدا کردن کیفیت از raw اصلی
+    # پیدا کردن کیفیت
     q_match = re.search(r"(\d{3,4})(?=p)", raw, re.IGNORECASE)
     quality = q_match.group(1) if q_match else ""
-    # استخراج نام انیمه: حذف اعداد مستقل
-    name_part = re.sub(r"\b\d+\b", "", no_quality)
-    # ساخت slug
-    slug = re.sub(r"[^0-9a-zA-Z]+", "-", name_part)
-    slug = re.sub(r"-{2,}", "-", slug).strip("-").lower()
-    # گردآوری نهایی
-    parts = [slug]
-    if ep_num and ep_num != "0":
-        parts.append(f"ep{ep_num}")
+    # استخراج اعداد مستقل (فصل و قسمت)
+    nums = re.findall(r"\b\d+\b", no_quality)
+    season = None
+    episode = None
+    if nums:
+        # اگر عبارت S<رقم> وجود دارد، آن را فصل می‌دانیم
+        s_match = re.search(r"S(\d+)\b", no_quality, re.IGNORECASE)
+        if s_match:
+            season = s_match.group(1).lstrip("0") or "0"
+            # عدد بعدی عدد قسمت است (اگر باشد)
+            ep_idx = nums.index(s_match.group(1)) + 1
+            if ep_idx < len(nums):
+                episode = nums[ep_idx].lstrip("0") or "0"
+        else:
+            # اگر فصل نداشتیم، آخرین عدد به عنوان قسمت در نظر گرفته می‌شود
+            episode = nums[-1].lstrip("0") or "0"
+    # slugify نام انیمه
+    name_slug = re.sub(r"\b\d+\b", "", no_quality)  # حذف اعداد
+    name_slug = re.sub(r"[^0-9a-zA-Z]+", "-", name_slug)
+    name_slug = re.sub(r"-{2,}", "-", name_slug).strip("-").lower()
+    # گردآوری
+    parts = [name_slug]
+    if season:
+        parts.append(f"s{season}")
+    if episode:
+        parts.append(f"ep{episode}")
     if quality:
         parts.append(quality)
     return "-".join(parts)
@@ -106,12 +115,12 @@ def anime_checker_loop():
 
 @bot.channel_post_handler(content_types=['video', 'document'])
 def handle_channel_post(message: Message):
-    expected_channel = UPLOAD_CHANNEL.lstrip('@')
-    if message.chat.username != expected_channel:
+    expected = UPLOAD_CHANNEL.lstrip('@')
+    if message.chat.username != expected:
         logger.warning(f"⛔️ پیام از کانال اشتباه دریافت شد: {message.chat.username}")
         return
 
-    # استخراج raw title
+    # raw
     if message.document:
         raw = message.document.file_name.rsplit('.', 1)[0]
     elif message.video and message.caption:
@@ -121,22 +130,29 @@ def handle_channel_post(message: Message):
         return
 
     logger.info(f"📦 raw title: {raw}")
-
+    # ساخت اپیزود
+    title = generate_title(raw)
     episode = {
         'code': raw,
-        'title': generate_title(raw),
+        'title': title,
         'message_id': message.message_id,
         'date_added': datetime.now().isoformat(),
         'quality': _extract_quality(raw),
     }
 
-    if not ADMIN_CHAT_IDS:
-        logger.error("❌ لیست ادمین‌ها خالی است.")
-        return
-
     # ذخیره مستقیم
     if add_episode(episode):
-        logger.info(f"✅ اپیزود «{episode['title']}» ثبت شد.")
+        logger.info(f"✅ اپیزود «{title}» ثبت شد.")
+        # اعلان به ادمین‌ها
+        for admin in ADMIN_CHAT_IDS:
+            try:
+                bot.send_message(
+                    admin,
+                    f"داداشمی اپیزود با کد `{episode['code']}` با عنوان `{title}` ثبت شد.",
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Error notifying admin {admin}: {e}", exc_info=True)
     else:
         logger.error("❌ خطا در ذخیره اپیزود.")
 
