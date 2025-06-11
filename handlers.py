@@ -36,28 +36,22 @@ THANK_YOU_MESSAGES = [
 ]
 
 def generate_title(raw: str) -> str:
-    # 1. حذف تگ‌های مربعی
     no_tags = re.sub(r"\[.*?\]", "", raw)
-    # 2. استخراج کیفیت
     q_match = re.search(r"(\d{3,4})(?=p)", raw, re.IGNORECASE)
     quality = q_match.group(1) if q_match else ""
-    # 3. استخراج فصل (Sx)
     s_match = re.search(r"S(\d+)\b", no_tags, re.IGNORECASE)
     season = s_match.group(1).lstrip("0") if s_match else None
-    # 4. استخراج قسمت (Ep or last number)
     ep_match = re.search(r"Ep(?:isode)?\s*(\d+)", no_tags, re.IGNORECASE)
     if ep_match:
         episode_num = ep_match.group(1).lstrip("0")
     else:
         nums = re.findall(r"\b(\d+)\b", no_tags)
         episode_num = nums[-1].lstrip("0") if nums else None
-    # 5. ساخت slug از نام
     name = no_tags
     name = re.sub(r"S\d+\b", "", name)
     name = re.sub(r"Ep(?:isode)?\s*\d+", "", name, flags=re.IGNORECASE)
     name = re.sub(r"\d{3,4}p", "", name, flags=re.IGNORECASE)
     slug = re.sub(r"[^0-9a-zA-Z]+", "-", name).strip("-").lower()
-    # 6. گردآوری اجزای نهایی
     parts = [slug]
     if season:
         parts.append(f"s{season}")
@@ -105,13 +99,10 @@ def anime_checker_loop():
 def handle_channel_post(message: Message):
     if message.chat.username != UPLOAD_CHANNEL.lstrip('@'):
         return
-
-    # استخراج raw title
     if message.document:
         raw = message.document.file_name.rsplit('.', 1)[0]
     else:
         raw = message.caption.strip()
-
     title = generate_title(raw)
     episode = {
         'code': raw,
@@ -120,17 +111,10 @@ def handle_channel_post(message: Message):
         'date_added': datetime.now(timezone.utc).isoformat(),
         'quality': _extract_quality(raw),
     }
-
     if add_episode(episode):
-        for admin in ADMIN_CHAT_IDS:
-            try:
-                bot.send_message(
-                    admin,
-                    f"اپیزود با کد `{episode['code']}` و عنوان `{title}` ذخیره شد.",
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                logger.error(f"Error notifying admin {admin}: {e}", exc_info=True)
+        logger.info(f"✅ اپیزود «{title}» ثبت شد.")
+    else:
+        logger.error("❌ خطا در ذخیره اپیزود.")
 
 @bot.message_handler(commands=["start"])
 def start_handler(message: Message):
@@ -138,10 +122,10 @@ def start_handler(message: Message):
     if len(parts) < 2:
         bot.send_message(
             message.chat.id,
-            "⚠️ لطفاً slug اپیزود را بعد از /start وارد کنید.\nمثال: /start classroom-of-the-elite-s1-ep1-480"
+            "⚠️ لطفاً slug اپیزود را بعد از /start وارد کنید.
+مثال: /start classroom-of-the-elite-s1-ep1-480"
         )
         return
-
     title = parts[1].strip()
     if not check_subscriptions(message.from_user.id):
         markup = InlineKeyboardMarkup()
@@ -155,7 +139,6 @@ def start_handler(message: Message):
             reply_markup=markup
         )
         return
-
     ep = get_episode(title)
     if not ep:
         bot.send_message(
@@ -164,7 +147,6 @@ def start_handler(message: Message):
             parse_mode="Markdown"
         )
         return
-
     sent = bot.forward_message(message.chat.id, UPLOAD_CHANNEL, ep['message_id'])
     thank = random.choice(THANK_YOU_MESSAGES)
     warn = bot.send_message(message.chat.id, thank + " ⏰ این پیام پس از ۳۰ ثانیه حذف می‌شود.")
