@@ -39,20 +39,27 @@ THANK_YOU_MESSAGES = [
 def generate_title(raw: str) -> str:
     # حذف برچسب‌های مربعی
     no_tags = re.sub(r"\[.*?\]", "", raw)
-    # پیدا کردن عدد قسمت
-    ep_match = re.search(r"(?:Ep|EP)?\s*[-:]?\s*(\d{1,3})(?=\D|$)", no_tags, re.IGNORECASE)
-    ep_num = ep_match.group(1).lstrip("0") if ep_match else "0"
-    # پیدا کردن کیفیت
+    # پاکسازی کیفیت از نام برای استخراج نام
+    no_quality = re.sub(r"\d{3,4}p", "", no_tags, flags=re.IGNORECASE)
+    # پیدا کردن عدد قسمت: از آخرین بخش تفکیک‌شده توسط '-' که فقط عدد است
+    ep_num = "0"
+    parts = no_tags.split("-")
+    for part in reversed(parts):
+        p = part.strip()
+        if p.isdigit():
+            ep_num = p.lstrip("0") or "0"
+            break
+    # پیدا کردن کیفیت از raw اصلی
     q_match = re.search(r"(\d{3,4})(?=p)", raw, re.IGNORECASE)
     quality = q_match.group(1) if q_match else ""
-    # استخراج نام انیمه و تبدیل به slug
-    name_part = re.sub(r"\d{1,3}(?=\D|$)", "", no_tags)
-    name_part = re.sub(r"\d{3,4}p", "", name_part, flags=re.IGNORECASE)
+    # استخراج نام انیمه: حذف اعداد مستقل
+    name_part = re.sub(r"\b\d+\b", "", no_quality)
+    # ساخت slug
     slug = re.sub(r"[^0-9a-zA-Z]+", "-", name_part)
     slug = re.sub(r"-{2,}", "-", slug).strip("-").lower()
     # گردآوری نهایی
     parts = [slug]
-    if ep_num:
+    if ep_num and ep_num != "0":
         parts.append(f"ep{ep_num}")
     if quality:
         parts.append(quality)
