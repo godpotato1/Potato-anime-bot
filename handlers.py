@@ -36,22 +36,34 @@ THANK_YOU_MESSAGES = [
 ]
 
 def generate_title(raw: str) -> str:
+    # 1. حذف تگ‌های مربعی
     no_tags = re.sub(r"\[.*?\]", "", raw)
+    # 2. استخراج کیفیت
     q_match = re.search(r"(\d{3,4})(?=p)", raw, re.IGNORECASE)
     quality = q_match.group(1) if q_match else ""
+    # 3. استخراج فصل (Sx)
     s_match = re.search(r"S(\d+)\b", no_tags, re.IGNORECASE)
     season = s_match.group(1).lstrip("0") if s_match else None
+    # 4. استخراج قسمت (Ep or last number)
     ep_match = re.search(r"Ep(?:isode)?\s*(\d+)", no_tags, re.IGNORECASE)
     if ep_match:
         episode_num = ep_match.group(1).lstrip("0")
     else:
         nums = re.findall(r"\b(\d+)\b", no_tags)
+        # اگر فصل هم در nums هست، حذفش
+        if season and season in nums:
+            nums = [n for n in nums if n != season]
         episode_num = nums[-1].lstrip("0") if nums else None
+    # 5. پاکسازی نام از فصل، قسمت و کیفیت و اعداد اضافی
     name = no_tags
     name = re.sub(r"S\d+\b", "", name)
     name = re.sub(r"Ep(?:isode)?\s*\d+", "", name, flags=re.IGNORECASE)
     name = re.sub(r"\d{3,4}p", "", name, flags=re.IGNORECASE)
+    # حذف سایر اعداد
+    name = re.sub(r"\b\d+\b", "", name)
+    # 6. slugify
     slug = re.sub(r"[^0-9a-zA-Z]+", "-", name).strip("-").lower()
+    # 7. گردآوری اجزا
     parts = [slug]
     if season:
         parts.append(f"s{season}")
